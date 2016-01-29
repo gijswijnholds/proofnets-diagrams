@@ -46,6 +46,8 @@ generalPN2Diagram (Comp pn1 pn2) = connectComp (generalPN2Diagram pn1) (generalP
 generalPN2Diagram (MonOtimes pn1 pn2) = connectMonOtimes (generalPN2Diagram pn1) (generalPN2Diagram pn2)
 generalPN2Diagram (MonBackslash pn1 pn2) = connectMonBackslash (generalPN2Diagram pn1) (generalPN2Diagram pn2)
 generalPN2Diagram (MonSlash pn1 pn2) = connectMonSlash (generalPN2Diagram pn1) (generalPN2Diagram pn2)
+generalPN2Diagram (LeftApp pn1 pn2) = connectLeftApp (generalPN2Diagram pn1) (generalPN2Diagram pn2)
+generalPN2Diagram (RightApp pn1 pn2) = connectRightApp (generalPN2Diagram pn1) (generalPN2Diagram pn2)
 
 class PN2Diagram a where
     transformId :: forall t. Rep t -> Diagram a
@@ -53,13 +55,17 @@ class PN2Diagram a where
     connectMonOtimes :: Diagram a -> Diagram a -> Diagram a
     connectMonBackslash :: Diagram a -> Diagram a -> Diagram a
     connectMonSlash :: Diagram a -> Diagram a -> Diagram a
+    connectLeftApp :: Diagram a -> Diagram a -> Diagram a
+    connectRightApp :: Diagram a -> Diagram a -> Diagram a
 
 instance PN2Diagram SVG where
     transformId =  transformId'
-    connectComp = connectComp' --x y = x === strutY 3 === y
+    connectComp = connectComp'
     connectMonOtimes = connectMon' MOtimes
     connectMonBackslash = connectMon' MBackslash
     connectMonSlash = connectMon' MSlash
+    connectLeftApp = connectLeftApp'
+    connectRightApp = connectRightApp'
 
 transformId' :: forall t. Rep t -> Diagram SVG
 transformId' = const $ pointDiagram origin # named In # named Out
@@ -84,6 +90,11 @@ connectMon' c d1 d2 = let
   middle = centerY (diagram1 ||| between ||| diagram2)
   matrix = placeBelow maxHeight Between outNode $ placeAbove maxHeight Between inNode middle
   in center $ getArrows matrix c
+connectLeftApp' :: Diagram SVG -> Diagram SVG -> Diagram SVG
+connectLeftApp' = undefined
+
+connectRightApp' :: Diagram SVG -> Diagram SVG -> Diagram SVG
+connectRightApp' = undefined
 
 placeAbove,placeBelow :: IsName nm => Double -> nm -> Diagram SVG -> Diagram SVG -> Diagram SVG
 placeAbove i n d1 = withName n $ \sub -> atop $ place d1 $ upper i sub

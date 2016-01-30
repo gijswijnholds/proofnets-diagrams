@@ -18,8 +18,11 @@ import           ProofNets
 import           System.IO
 
 data Dir = L | R deriving (Eq,Show)
-data NetNames = N1 | N2 | In | Out | Between | Top | Bottom deriving (Eq,Ord,Show,Typeable)
+data NetNames = N1 | N2 | In | Out | Between | Top | Bottom | Point Int deriving (Eq,Ord,Show,Typeable)
 instance IsName NetNames
+
+writeDiagram :: Diagram SVG -> IO ()
+writeDiagram d = Strict.writeFile "net1.svg" $ svg d
 
 writeGraph :: PN i o -> IO ()
 writeGraph pn = Strict.writeFile "net.svg" (renderMyGraph' pn)
@@ -39,6 +42,15 @@ svg = Strict.concat . Lazy.toChunks . renderBS .
 
 smallCircle :: Diagram SVG
 smallCircle = circle 1 # lwL 0.1
+
+connCircle :: MonConnective -> Diagram SVG
+connCircle c = showDiagram c # scale 0.5 `atop` smallCircle
+
+showDiagram :: MonConnective -> Diagram SVG
+showDiagram MOtimes = (vrule 2 # rotate (1/8 @@ turn)) <> (hrule 2 # rotate (1/8 @@ turn)) <> circle 1
+showDiagram MSlash = vrule 2 # rotate (-1/16 @@ turn)
+showDiagram MBackslash = vrule 2 #rotate (1/16 @@ turn)
+
 
 generalPN2Diagram :: PN2Diagram a => PN i o -> Diagram a
 generalPN2Diagram (Id rep) = transformId rep
@@ -83,26 +95,77 @@ connectMon' :: MonConnective -> Diagram SVG -> Diagram SVG -> Diagram SVG
 connectMon' c d1 d2 = let
   diagram1 = maybeLeftRotate c $ N1 .>> d1
   diagram2 = maybeRightRotate c $ N2 .>> d2
-  inNode = smallCircle # named In
-  outNode = smallCircle # named Out
+  inNode = connCircle c # maybeColorGrayTop c # named In
+  outNode = connCircle c # maybeColorGrayBottom c # named Out
   between = strutX 4 # named Between
-  maxHeight = 2 + max (height diagram1) (height diagram2)/1.25
+  maxHeight = calcMaxHeight diagram1 diagram2
   middle = centerY (diagram1 ||| between ||| diagram2)
   matrix = placeBelow maxHeight Between outNode $ placeAbove maxHeight Between inNode middle
   in center $ getArrows matrix c
+
 connectLeftApp' :: Diagram SVG -> Diagram SVG -> Diagram SVG
-connectLeftApp' = undefined
+connectLeftApp' d1 d2 = let
+  diagram1 = N1 .>> d1
+  diagram2 = N2 .>> d2
+  inNode = connCircle MOtimes # named In
+  point1 = pointDiagram' # named (Point 1)
+  point2 = pointDiagram' # named (Point 2)
+  point3 = connCircle MBackslash # named (Point 3)
+  outNode = pointDiagram' # named Out
+  between = strutX 4 # named Between
+  underConstant = 4
+  maxHeight = calcMaxHeight diagram1 diagram2
+  middle = centerY (diagram1 ||| between ||| diagram2)
+  matrix = placeBelowRight (2*underConstant + maxHeight) underConstant Between outNode
+         $ placeBelow (underConstant + maxHeight) Between point2
+         $ placeBelow underConstant (N2 .> Out) point3
+         $ placeBelow underConstant (N1 .> Out) point1
+         $ placeAbove maxHeight Between inNode middle
+  in center $ buildArrowsLeftApp matrix
 
 connectRightApp' :: Diagram SVG -> Diagram SVG -> Diagram SVG
-connectRightApp' = undefined
+connectRightApp' d1 d2 = let
+    diagram1 = N1 .>> d1
+    diagram2 = N2 .>> d2
+    inNode = connCircle MOtimes # named In
+    point1 = connCircle MSlash # named (Point 1)
+    point2 = pointDiagram' # named (Point 2)
+    point3 = pointDiagram' # named (Point 3)
+    outNode = pointDiagram' # named Out
+    between = strutX 4 # named Between
+    underConstant = 4
+    maxHeight = calcMaxHeight diagram1 diagram2
+    middle = centerY (diagram1 ||| between ||| diagram2)
+    matrix = placeBelowLeft (2*underConstant + maxHeight) underConstant Between outNode
+           $ placeBelow (underConstant + maxHeight) Between point2
+           $ placeBelow underConstant (N2 .> Out) point3
+           $ placeBelow underConstant (N1 .> Out) point1
+           $ placeAbove maxHeight Between inNode middle
+    in center $ buildArrowsRightApp matrix
+
+pointDiagram' :: Diagram SVG
+pointDiagram' = pointDiagram origin
+
+calcMaxHeight :: Diagram SVG -> Diagram SVG -> Double
+calcMaxHeight d1 d2 = 2 + max (height d1) (height d2)/1.25
 
 placeAbove,placeBelow :: IsName nm => Double -> nm -> Diagram SVG -> Diagram SVG -> Diagram SVG
 placeAbove i n d1 = withName n $ \sub -> atop $ place d1 $ upper i sub
 placeBelow i n d1 = withName n $ \sub -> atop $ place d1 $ lower i sub
 
+placeBelowRight,placeBelowLeft :: IsName nm => Double -> Double -> nm -> Diagram SVG -> Diagram SVG -> Diagram SVG
+placeBelowRight i j n d1 = placeDisplaced j (-i) n d1
+placeBelowLeft i j n d1  = placeDisplaced (-j) (-i) n d1
+
 upper,lower :: Double -> Subdiagram SVG V2 Double Any -> Point V2 Double
-upper i sub = location sub .+^ (i *^ unitY)
+upper i = displace (0,i)
 lower i = upper (-i)
+
+placeDisplaced :: IsName nm => Double -> Double -> nm -> Diagram SVG -> Diagram SVG -> Diagram SVG
+placeDisplaced i j n d1 = withName n $ \sub -> atop $ place d1 $ displace (i, j) sub
+
+displace :: (Double, Double) -> Subdiagram SVG V2 Double Any -> Point V2 Double
+displace (i,j) sub = location sub .+^ (i *^ unitX ^+^ j *^ unitY)
 
 arrowOptions :: Dir -> ArrowOpts Double
 arrowOptions dir = with & arrowShaft .~ getShaft dir & shaftStyle %~ lw thin & arrowHead .~ tri & headLength .~ thin
@@ -120,6 +183,37 @@ getShaft R = shaftR
 shaftL,shaftR :: (TrailLike t, V t ~ V2) => t
 shaftL = arc xDir (70/360 @@ turn)
 shaftR = arc xDir (-70/360 @@ turn)
+
+
+maybeColorGrayTop, maybeColorGrayBottom :: MonConnective -> Diagram SVG -> Diagram SVG
+maybeColorGrayTop c = maybeColorGray (not $ isResidual c)
+maybeColorGrayBottom c = maybeColorGray (isResidual c)
+
+maybeColorGray :: Bool -> Diagram SVG -> Diagram SVG
+maybeColorGray True d = d # fcA transparentGray
+maybeColorGray False d = d
+
+transparentGray = gray `withOpacity` 0.4
+
+buildArrowsLeftApp :: Diagram SVG -> Diagram SVG
+buildArrowsLeftApp d = d
+                    # connectPerim' (arrowOptions L) In (N1 .> In) (200/360 @@ turn) (90/360 @@ turn)
+                    # connectPerim' (arrowOptions R) In (N2 .> In) (340/360 @@ turn) (90/360 @@ turn)
+                    # connectPerim' simpleArrowOptions (N1 .> Out) (Point 1) (270/360 @@ turn) (90/360 @@ turn)
+                    # connectPerim' simpleArrowOptions (N2 .> Out) (Point 3) (270/360 @@ turn) (90/360 @@ turn)
+                    # connectPerim' (arrowOptions L) (Point 1) (Point 2) (270/360 @@ turn) (180/360 @@ turn)
+                    # connectPerim' (arrowOptions L) (Point 2) (Point 3) (0/360 @@ turn) (200/360 @@ turn)
+                    # connectPerim' (arrowOptions R) (Point 3) Out (340/360 @@ turn) (90/360 @@ turn)
+
+buildArrowsRightApp :: Diagram SVG -> Diagram SVG
+buildArrowsRightApp d = d
+                    # connectPerim' (arrowOptions L) In (N1 .> In) (200/360 @@ turn) (90/360 @@ turn)
+                    # connectPerim' (arrowOptions R) In (N2 .> In) (340/360 @@ turn) (90/360 @@ turn)
+                    # connectPerim' simpleArrowOptions (N1 .> Out) (Point 1) (270/360 @@ turn) (90/360 @@ turn)
+                    # connectPerim' simpleArrowOptions (N2 .> Out) (Point 3) (270/360 @@ turn) (90/360 @@ turn)
+                    # connectPerim' (arrowOptions R) (Point 3) (Point 2) (270/360 @@ turn) (0/360 @@ turn)
+                    # connectPerim' (arrowOptions R) (Point 2) (Point 1) (180/360 @@ turn) (340/360 @@ turn)
+                    # connectPerim' (arrowOptions L) (Point 1) Out (200/360 @@ turn) (90/360 @@ turn)
 
 getArrows,getLeftArrows,getRightArrows :: Diagram SVG -> MonConnective -> Diagram SVG
 getArrows d c = getLeftArrows (getRightArrows d c) c

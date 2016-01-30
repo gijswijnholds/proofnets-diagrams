@@ -13,6 +13,10 @@ testPN3 = Comp testPN2 testPN2
 testPN4 = MonOtimes testPN3 testPN1
 
 testPN5 = MonSlash testPN1 testPN3
+
+testPN6 = LeftApp (Id (RAt A)) (MonBackslash (Id (RAt A)) (Id (RAt B)))
+testPN7 = RightApp (MonSlash (Id (RAt B)) (Id (RAt A))) (Id (RAt A))
+
 -- end small test stuff
 
 class Show a => Atom a where
@@ -42,6 +46,12 @@ data MonConnective =
                  | MBackslash
                  | MSlash
                  deriving (Eq, Show)
+
+class IsResidual a where
+  isResidual :: a -> Bool
+
+instance IsResidual MonConnective where
+  isResidual c = leftRotate c || rightRotate c
 
 class Rotation a where
   leftRotate :: a -> Bool

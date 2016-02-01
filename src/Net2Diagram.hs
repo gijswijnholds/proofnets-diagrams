@@ -3,11 +3,13 @@
 {-# LANGUAGE GADTs                 #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE Rank2Types            #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 
 module Net2Diagram where
 
 import qualified Data.ByteString      as Strict
 import qualified Data.ByteString.Lazy as Lazy
+import Data.Tuple
 import           Data.Maybe
 import           Data.Text            (pack)
 import           Data.Typeable
@@ -154,8 +156,8 @@ placeAbove i n d1 = withName n $ \sub -> atop $ place d1 $ upper i sub
 placeBelow i n d1 = withName n $ \sub -> atop $ place d1 $ lower i sub
 
 placeBelowRight,placeBelowLeft :: IsName nm => Double -> Double -> nm -> Diagram SVG -> Diagram SVG -> Diagram SVG
-placeBelowRight i j n d1 = placeDisplaced j (-i) n d1
-placeBelowLeft i j n d1  = placeDisplaced (-j) (-i) n d1
+placeBelowRight i j = placeDisplaced j (-i)
+placeBelowLeft i j = placeDisplaced (-j) (-i)
 
 upper,lower :: Double -> Subdiagram SVG V2 Double Any -> Point V2 Double
 upper i = displace (0,i)
@@ -170,11 +172,38 @@ displace (i,j) sub = location sub .+^ (i *^ unitX ^+^ j *^ unitY)
 arrowOptions :: Dir -> ArrowOpts Double
 arrowOptions dir = with & arrowShaft .~ getShaft dir & shaftStyle %~ lw thin & arrowHead .~ tri & headLength .~ thin
 
+arrowOptions' :: Dir -> (Point V2 Double, Point V2 Double) -> ArrowOpts Double
+arrowOptions' dir points = with & arrowShaft .~ (getShaftCubicSpline points dir) & shaftStyle %~ lw thin & arrowHead .~ tri & headLength .~ thin
+
 simpleArrowOptions :: ArrowOpts Double
 simpleArrowOptions = with & shaftStyle %~ lw thin & arrowHead .~ tri & headLength .~ thin
 
 rename :: (IsName nm1, IsName nm2) => nm1 -> nm2 -> Diagram SVG -> Diagram SVG
 rename n1 = nameSub (fromJust.lookupName n1)
+
+getShaftCubicSpline :: (TrailLike t, V t ~ V2, N t ~ Double) => (Point (V t) Double, Point (V t) Double) -> Dir -> t
+getShaftCubicSpline (p1, p2) L = cubicSpline False [p1, getMiddlePointLeft (p1, p2), p2]
+getShaftCubicSpline (p1, p2) R = cubicSpline False [p1, getMiddlePointRight (p1, p2), p2]
+
+pointX, pointY :: Point V2 Double
+pointX = p2 (1.0, 3.0)
+pointY = p2 (3.0, 6.0)
+
+result :: (TrailLike t, V t ~ V2, N t ~ Double) => t
+result = getShaftCubicSpline (pointX, pointY) L
+-- getSingleCubicSpline p = cubicSpline False [p]
+
+getMiddlePointLeft, getMiddlePointRight :: (Point V2 Double, Point V2 Double) -> Point V2 Double
+getMiddlePointLeft (p1, p2) = let
+  middle = p1 + 0.5 * (p2 - p1)
+  in middle + 0.1 * getOrthogonalLeft middle
+getMiddlePointRight (p1, p2) = let
+  middle = p1 + 0.5 * (p2 - p1)
+  in middle + 0.1 * getOrthogonalRight middle
+
+getOrthogonalLeft, getOrthogonalRight :: Point V2 Double -> Point V2 Double
+getOrthogonalLeft (P (V2 x y)) = P (V2 (-y) x)
+getOrthogonalRight (P (V2 x y)) = P (V2 y (-x))
 
 getShaft :: (TrailLike t, V t ~ V2) => Dir -> t
 getShaft L = shaftL
@@ -197,41 +226,81 @@ transparentGray = gray `withOpacity` 0.4
 
 buildArrowsLeftApp :: Diagram SVG -> Diagram SVG
 buildArrowsLeftApp d = d
-                    # connectPerim' (arrowOptions L) In (N1 .> In) (200/360 @@ turn) (90/360 @@ turn)
-                    # connectPerim' (arrowOptions R) In (N2 .> In) (340/360 @@ turn) (90/360 @@ turn)
-                    # connectPerim' simpleArrowOptions (N1 .> Out) (Point 1) (270/360 @@ turn) (90/360 @@ turn)
-                    # connectPerim' simpleArrowOptions (N2 .> Out) (Point 3) (270/360 @@ turn) (90/360 @@ turn)
-                    # connectPerim' (arrowOptions L) (Point 1) (Point 2) (270/360 @@ turn) (180/360 @@ turn)
+                    # drawArrow (arrowOptions L) (In, N1 .> In) curvedRightToBottom
+                    # drawArrow (arrowOptions R) (In, N2 .> In) curvedLeftToBottom
+                    # drawArrow simpleArrowOptions (N1 .> Out, Point 1) topToBottom
+                    # drawArrow simpleArrowOptions (N2 .> Out, Point 3) topToBottom
+                    # drawArrow (arrowOptions L) (Point 1, Point 2) straightTopToLeft
                     # connectPerim' (arrowOptions L) (Point 2) (Point 3) (0/360 @@ turn) (200/360 @@ turn)
                     # connectPerim' (arrowOptions R) (Point 3) Out (340/360 @@ turn) (90/360 @@ turn)
 
 buildArrowsRightApp :: Diagram SVG -> Diagram SVG
 buildArrowsRightApp d = d
-                    # connectPerim' (arrowOptions L) In (N1 .> In) (200/360 @@ turn) (90/360 @@ turn)
-                    # connectPerim' (arrowOptions R) In (N2 .> In) (340/360 @@ turn) (90/360 @@ turn)
-                    # connectPerim' simpleArrowOptions (N1 .> Out) (Point 1) (270/360 @@ turn) (90/360 @@ turn)
-                    # connectPerim' simpleArrowOptions (N2 .> Out) (Point 3) (270/360 @@ turn) (90/360 @@ turn)
-                    # connectPerim' (arrowOptions R) (Point 3) (Point 2) (270/360 @@ turn) (0/360 @@ turn)
+                    # drawArrow (arrowOptions L) (In, N1 .> In) curvedRightToBottom
+                    # drawArrow (arrowOptions R) (In, N2 .> In) curvedLeftToBottom
+                    # drawArrow simpleArrowOptions (N1 .> Out, Point 1) topToBottom
+                    # drawArrow simpleArrowOptions (N2 .> Out, Point 3) topToBottom
+                    # drawArrow (arrowOptions R) (Point 3, Point 2) straightTopToRight
                     # connectPerim' (arrowOptions R) (Point 2) (Point 1) (180/360 @@ turn) (340/360 @@ turn)
                     # connectPerim' (arrowOptions L) (Point 1) Out (200/360 @@ turn) (90/360 @@ turn)
+
+drawArrow :: (IsName n1, IsName n2) => ArrowOpts Double -> (n1, n2) -> (Angle Double, Angle Double) -> Diagram SVG -> Diagram SVG
+drawArrow opts names = uncurry (uncurry (connectPerim' opts) names)
+
+drawArrow' :: (IsName n1, IsName n2) => Dir -> (n1, n2) -> (Angle Double, Angle Double) -> Diagram SVG -> Diagram SVG
+drawArrow' dir names = uncurry ((uncurry f names) dir)
+
+
+f :: (IsName n1, IsName n2) => n1 -> n2 -> Dir -> Angle Double -> Angle Double -> Diagram SVG -> Diagram SVG
+f n1 n2 dir a1 a2 = withName n1 $ \sub1 ->
+                    withName n2 $ \sub2 ->
+                  connectPerim' (arrowOptions' dir (location sub1, location sub2)) n1 n2 a1 a2
 
 getArrows,getLeftArrows,getRightArrows :: Diagram SVG -> MonConnective -> Diagram SVG
 getArrows d c = getLeftArrows (getRightArrows d c) c
 getLeftArrows d c | leftRotate c = d
-                    # connectPerim' (arrowOptions R) Out (N1 .> In) (160/360 @@ turn) (270/360 @@ turn)
-                    # connectPerim' (arrowOptions R) (N1 .> Out) In (90/360 @@ turn) (200/360 @@ turn)
+                    # drawArrow (arrowOptions R) (Out, N1 .> In) curvedLeftToTop
+                    # drawArrow (arrowOptions R) (N1 .> Out, In) curvedBottomToRight
                   | otherwise    = d
-                    # connectPerim' (arrowOptions L) In (N1 .> In) (200/360 @@ turn) (90/360 @@ turn)
-                    # connectPerim' (arrowOptions L) (N1 .> Out) Out (270/360 @@ turn) (160/360 @@ turn)
+                    # drawArrow' L (In, N1 .> In) curvedRightToBottom
+                    # drawArrow (arrowOptions L) (N1 .> Out, Out) curvedTopToLeft
 getRightArrows d c | rightRotate c = d
-                    # connectPerim' (arrowOptions L) Out (N2 .> In) (20/360 @@ turn) (270/360 @@ turn)
-                    # connectPerim' (arrowOptions L) (N2 .> Out) In (90/360 @@ turn) (340/360 @@ turn)
+                    # drawArrow (arrowOptions L) (Out, N2 .> In) curvedRightToTop
+                    # drawArrow (arrowOptions L) (N2 .> Out, In) curvedBottomToLeft
                    | otherwise     = d
-                     # connectPerim' (arrowOptions R) In (N2 .> In) (340/360 @@ turn) (90/360 @@ turn)
-                     # connectPerim' (arrowOptions R) (N2 .> Out) Out (270/360 @@ turn) (20/360 @@ turn)
+                     # drawArrow (arrowOptions R) (In, N2 .> In) curvedLeftToBottom
+                     # drawArrow (arrowOptions R) (N2 .> Out, Out) curvedTopToRight
 
 maybeLeftRotate, maybeRightRotate :: MonConnective -> Diagram SVG -> Diagram SVG
 maybeLeftRotate c d | leftRotate c = rotate (180/360 @@ turn) d
                     | otherwise    = d
 maybeRightRotate c d | rightRotate c = rotate (180/360 @@ turn) d
                     | otherwise    = d
+
+curvedTopToLeft, curvedTopToRight, curvedBottomToLeft, curvedBottomToRight :: Floating n => (Angle n, Angle n)
+curvedTopToLeft = uniBimap makeAngle (270, 160)
+curvedTopToRight = uniBimap makeAngle (270, 20)
+curvedBottomToLeft = uniBimap makeAngle (90, 340)
+curvedBottomToRight = uniBimap makeAngle (90, 200)
+
+curvedLeftToTop, curvedRightToTop, curvedLeftToBottom, curvedRightToBottom :: Floating n => (Angle n, Angle n)
+curvedLeftToTop = swap curvedTopToLeft
+curvedRightToTop = swap curvedTopToRight
+curvedLeftToBottom = swap curvedBottomToLeft
+curvedRightToBottom = swap curvedBottomToRight
+
+straightTopToLeft, straightTopToRight, straightBottomToLeft, straightBottomToRight :: Floating n => (Angle n, Angle n)
+straightTopToLeft = uniBimap makeAngle (270, 180)
+straightTopToRight = uniBimap makeAngle (270, 0)
+straightBottomToLeft = uniBimap makeAngle (90, 0)
+straightBottomToRight = uniBimap makeAngle (90, 180)
+
+topToBottom, bottomToTop :: Floating n => (Angle n, Angle n)
+topToBottom = uniBimap makeAngle (270, 90)
+bottomToTop = swap topToBottom
+
+makeAngle :: Floating n => n -> Angle n
+makeAngle n = n/360 @@ turn
+
+uniBimap :: Bifunctor p => (a -> b) -> p a a -> p b b
+uniBimap f = bimap f f
